@@ -75,7 +75,6 @@ public class TermKindlet extends AbstractKindlet {
 
             root.validate();
             root.setVisible(true);
-
             session.connect("127.0.0.1", 23);
 
             log.debug("kindlet's create() finished OK");
@@ -91,12 +90,15 @@ public class TermKindlet extends AbstractKindlet {
 
         if (term != null)
             term.kill();
+        log.debug("kindlet's destroy() finished OK");
     }
 
     public void start() {
         super.start();
+        log.debug("kindlet's start() finished OK");
     }
 
     public void stop() {
+        log.debug("kindlet's stop() finished OK");
     }
 }
