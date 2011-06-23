@@ -7,8 +7,10 @@ APPNAME = 'KindleTerm'
 top = '.'
 out = 'build'
 
-from waflib.TaskGen import feature
+from waflib.TaskGen import feature, extension
 from waflib import TaskGen, Task, Utils, Options, Build, Errors, Node
+import os
+import re
 
 class SignTask(Task.Task):
     after = 'jar_create'
@@ -30,13 +32,15 @@ def sign(self):
 
 def configure(conf):
     conf.check_tool('java')
-    conf.env.CLASSPATH_KINDLET = ['../../lib/kindlet-1.2.jar', '../../lib/KindletImplementation-1.2.jar', '../../lib/log4j-1.2.15.jar']
+    conf.env.CLASSPATH_KINDLET = ['../../lib/kindlet-1.1.jar', '../../lib/KindletImplementation-1.1.jar', '../../lib/log4j-1.2.15.jar']
     conf.find_program('jarsigner', var='JARSIGNER')
     #conf.check_java_class('java.io.FileOutputStream')
     #conf.check_java_class('FakeClass')
 
 def build(bld):
 
+    bld(source='src/test/TerminalArea.pjava',
+        defines=['DESKTOP'])
     # in the following, the feature 'seq' is used to force a sequential order on the tasks created
     # java
     #
@@ -55,7 +59,7 @@ def build(bld):
     for a in ('dkTest', 'diTest', 'dnTest'): 
         bld(features='sign',
             target='KindleTerm.azw2',
-            opts = ['-keystore', '../developer.keystore',
+            opts = ['-keystore', '../../developer.keystore',
                     '-storepass', 'password'],
             alias = a)
         bld.add_group()
@@ -68,3 +72,53 @@ def build(bld):
     #jaropts = '-C default/src/ .', # can be used to give files
     #classpath = '..:.', # can be used to set a custom classpath
     #)
+class PreprocessTask(Task.Task):
+    def run(self):
+        tgts = []
+        for i in self.inputs:
+            PREPROC = re.compile(r'^\s*#\s*(\w+)')
+            PREPROC_IFDEF = re.compile(r'^\s*#\s*ifdef\s+(\w+)\s*$')
+            PREPROC_ELSE = re.compile(r'^\s*#\s*else\s*$')
+            PREPROC_ENDIF = re.compile(r'^\s*#\s*endif\s*$')
+            skip = False
+            depth = 0
+            with open(i.abspath(), 'r') as f:
+                dest = i.change_ext('.java')
+                with open(dest.abspath(), 'w') as t:
+                    for line in f:
+                        #print "examing line: ", line
+                        if PREPROC.search(line):
+                            #print "found prep line: ", line
+                            mo = PREPROC_IFDEF.search(line)
+                            if mo:
+                                depth += 1
+                                oldskip = skip
+                                if mo.group(1) in self.defines:
+                                    skip = False
+                                else:
+                                    skip = True
+                                continue
+                            mo = PREPROC_ELSE.search(line)
+                            if mo:
+                                skip = not skip
+                                continue
+                            mo = PREPROC_ENDIF.search(line)
+                            if mo:
+                                depth -= 1
+                                skip = oldskip
+                                continue
+                        if not skip:
+                            t.write(line)
+                    else:
+                        if depth != 0:
+                            raise Exception("Unmatched #if #endif blocks\n")
+                tgts.append(dest)
+        self.set_outputs(tgts)
+
+
+@extension('.pjava')
+def preprocess(self, n):
+    self.preproc_task = tsk = self.create_task('PreprocessTask', n)
+    tsk.defines = getattr(self, 'defines', None)
+    if getattr(self, 'javac_task', None):
+        tsk.set_run_before(self.javac_task)
